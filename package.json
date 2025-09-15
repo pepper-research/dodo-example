@@ -1,0 +1,14 @@
+{
+    "name": "dodo-example",
+    "private": true,
+    "type": "module",
+    "packageManager": "bun@1.2.20",
+    "workspaces": [
+        "nodejs",
+        "spiceflow"
+    ],
+    "dependencies": {
+        "viem": "^2.37.5",
+        "@noble/hashes": "^1.8.0"
+    }
+}
