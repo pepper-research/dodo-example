@@ -207,6 +207,7 @@ const testFlight = async () => {
 
   // recent block + nonce
   const recentBlock = await sdkGetRecentBlock(publicClient as any);
+  // const recentBlock = 22825668n;
   const nonce = await publicClient.getTransactionCount({ address: me });
 
   // chain batches + digest
