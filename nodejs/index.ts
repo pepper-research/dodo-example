@@ -134,14 +134,13 @@ const testFlight = async () => {
   }
 
   // Define amount (1 USDC with 6 decimals)
-  const fromAmount = parseUnits("1", FROM_DECIMALS).toString();
+  const fromAmount = parseUnits("1", FROM_DECIMALS);
 
   // Check balance up front (avoids SafeERC20 sadness later)
   const bal = await publicClient.readContract({ address: fromTokenAddress as Address, abi: erc20Abi, functionName: 'balanceOf', args: [me] });
   console.log(`USDC balance: ${bal.toString()}`);
-  if (BigInt(bal.toString()) < BigInt(fromAmount)) {
-    throw new Error(`Insufficient USDC. Need ${fromAmount}, have ${bal.toString()}.`);
-  }
+  if (bal < fromAmount) throw new Error(`Insufficient USDC. Need ${fromAmount}, have ${bal}.`);
+
 
   // Log native token balance before querying DODO route
   const nativeBal = await publicClient.getBalance({ address: me });
@@ -186,7 +185,7 @@ const testFlight = async () => {
 
   // optional approve step (ERC20 path)
   if (fromTokenAddress && fromAmount && FROM_DECIMALS != null) {
-    const tokenAmount = parseUnits(fromAmount, FROM_DECIMALS);
+    const tokenAmount = fromAmount;
     calls.push({
       to: fromTokenAddress,
       value: 0n,
@@ -205,31 +204,55 @@ const testFlight = async () => {
     data: routeObj.data,
   });
 
-  // recent block + nonce
-  const recentBlock = await sdkGetRecentBlock(publicClient as any);
-  // const recentBlock = 22825668n;
-  const nonce = await publicClient.getTransactionCount({ address: me });
+  // const recentBlock = await sdkGetRecentBlock(publicClient as any);
+  const recentBlock = 23437163n; // update to recent when running later
 
   // chain batches + digest
   const chainBatches = hashChainBatches([{ chainId: Number(chainId), calls, recentBlock }]);
   const digest = sdkGetAuthorizationHash(chainBatches as any);
 
-  // sign 7702 auth (per-chain) + intent using Viem
-  // Note: Viem's signAuthorization returns r/s/yParity shape
+  const acctNonce = await publicClient.getTransactionCount({ address: me, blockTag: 'pending' });
+  const nonces = [acctNonce, acctNonce + 1];
+
+
   const delegateContractAddress = ensureAddress("delegate", process.env.DELEGATE_CONTRACT as string) as `0x${string}`;
-  const auth = await walletClient.signAuthorization({ account, chainId: Number(chainId), contractAddress: delegateContractAddress, nonce });
-  const authorization: Authorization[] = [{
-    address: auth.address,
-    chainId: Number(auth.chainId),
-    nonce: Number(auth.nonce),
-    r: auth.r as `0x${string}`,
-    s: auth.s as `0x${string}`,
-    yParity: Number((auth as any).yParity ?? (auth as any).v % 2n),
-  }];
+
+  const signedAuths = await Promise.all(
+    nonces.map(n =>
+      walletClient.signAuthorization({
+        account,
+        chainId: Number(chainId),
+        contractAddress: delegateContractAddress,
+        nonce: Number(n),
+      })
+    )
+  );
+
+
+
+
+  const authorization: Authorization[] = signedAuths.map(a => ({
+    address: a.address as `0x${string}`,
+    chainId: Number(a.chainId),
+    nonce: Number(a.nonce),
+    r: a.r as `0x${string}`,
+    s: a.s as `0x${string}`,
+    yParity: Number((a as any).yParity ?? (a as any).v % 2n),
+  }));
+
   const signature = await walletClient.signMessage({ account, message: { raw: digest } });
 
   const tokenAddress = (fromTokenAddress ?? '0x0000000000000000000000000000000000000000') as `0x${string}`;
-  const tokenAmount = fromTokenAddress && fromAmount && FROM_DECIMALS != null ? parseUnits(fromAmount, FROM_DECIMALS) : 0n;
+  const tokenAmount = fromTokenAddress && fromAmount && FROM_DECIMALS != null ? fromAmount : 0n;
+
+  // log curl command before sending
+  console.log(`curl -X POST ${txApiUrl}/transaction/submit -H "Content-Type: application/json" -d '${JSON.stringify({
+    tokenAddress,
+    tokenAmount,
+    address: me,
+    authorization,
+    intentAuthorization: { signature, chainBatches },
+  }, (k, v) => typeof v === 'bigint' ? v.toString() : v)}'`);
 
   const res = await submitTransaction(txApiUrl, {
     tokenAddress,
