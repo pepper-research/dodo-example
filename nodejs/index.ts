@@ -204,8 +204,8 @@ const testFlight = async () => {
     data: routeObj.data,
   });
 
-  // const recentBlock = await sdkGetRecentBlock(publicClient as any);
-  const recentBlock = 23437163n; // update to recent when running later
+  const recentBlock = (await sdkGetRecentBlock(publicClient as any));
+  // const recentBlock = 23437163n; // update to recent when running later
 
   // chain batches + digest
   const chainBatches = hashChainBatches([{ chainId: Number(chainId), calls, recentBlock }]);
